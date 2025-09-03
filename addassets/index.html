@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Betnix Asset System</title>
+<style>
+:root{
+  --bg:#0b0f14; --panel:#121821; --panel-2:#0e141c; --text:#eef2f7;
+  --muted:#98a2b3; --accent:#4f8cff; --danger:#ff5d5d; --ring: rgba(79,140,255,0.35);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Segoe UI,Roboto,Inter,Helvetica,Arial,sans-serif;
+background:var(--bg);color:var(--text)}
+.container{max-width:1000px;margin:0 auto;padding:24px}
+h1,h2,h3{margin:0}
+header{display:flex;justify-content:space-between;align-items:center}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.card{background:linear-gradient(180deg,var(--panel),var(--panel-2));
+border:1px solid #1b2330;border-radius:16px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,0.25)}
+input,textarea{background:#0a0f16;border:1px solid #1e2836;color:var(--text);border-radius:10px;padding:10px 12px;width:100%}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:12px;border:1px solid #2a3a54;background:linear-gradient(180deg,#1b2a44,#152238);color:var(--text);cursor:pointer;text-decoration:none;font-weight:600}
+.btn:active{transform:translateY(1px)}
+.btn.danger{border-color:#4a1d1d;background:linear-gradient(180deg,#421b1b,#2a1212);}
+.list-item{padding:12px;border:1px solid #1b2330;border-radius:12px;margin:6px 0;display:flex;justify-content:space-between;align-items:center;background:#0c1118;text-decoration:none;color:var(--text)}
+.preview{max-width:100%;max-height:300px;border-radius:10px;margin-top:10px}
+textarea.copy-box{height:100px;resize:none}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="container">
+<h1>Betnix Assets</h1>
+</header>
+<main class="container">
+<div class="grid">
+<div class="card">
+<h2>Upload Asset</h2>
+<form id="uploadForm">
+<label>Name<input type="text" id="assetName" required></label>
+<label>Description<textarea id="assetDesc" rows="3"></textarea></label>
+<label>File<input type="file" id="assetFile" required></label>
+<button type="submit" class="btn">Upload</button>
+<p id="uploadStatus"></p>
+</form>
+</div>
+<div class="card">
+<h2>Search / Browse</h2>
+<input type="text" id="searchInput" placeholder="Search by name or ID">
+<div id="assetList"></div>
+</div>
+</div>
+<div class="card" id="assetDetailCard" style="display:none">
+<h2 id="detailName"></h2>
+<div id="detailMeta"></div>
+<div id="detailPreview"></div>
+<p id="detailDesc"></p>
+<textarea class="copy-box" id="dataUrlBox" readonly></textarea>
+<button class="btn" id="downloadBtn">Download</button>
+<button class="btn danger" id="deleteBtn">Delete</button>
+</div>
+</main>
+<script>
+const STORE_KEY = "betnix.assets.v2";
+function makeId(bytes=6){const arr=new Uint8Array(bytes);crypto.getRandomValues(arr);return Array.from(arr,b=>b.toString(16).padStart(2,"0")).join("").toUpperCase();}
+function loadAll(){try{return JSON.parse(localStorage.getItem(STORE_KEY)||"{}")}catch{return{}}}
+function saveAll(db){localStorage.setItem(STORE_KEY,JSON.stringify(db))}
+function renderList(filter=""){
+  const db=loadAll();const container=document.getElementById("assetList");
+  const ids=Object.keys(db).sort((a,b)=>db[b].created-db[a].created);
+  container.innerHTML="";
+  ids.forEach(id=>{const a=db[id];if(!a.name.toLowerCase().includes(filter.toLowerCase())&&!id.includes(filter))return;
+  const el=document.createElement("a");el.href="#"+id;el.className="list-item";el.textContent=a.name+" ("+id+")";el.addEventListener("click",e=>{e.preventDefault();showAsset(id)});container.appendChild(el)})}
+function showAsset(id){
+  const db=loadAll();const a=db[id];if(!a)return alert("Asset not found");
+  document.getElementById("assetDetailCard").style.display="block";
+  document.getElementById("detailName").textContent=a.name;
+  document.getElementById("detailMeta").innerHTML="<b>ID:</b>"+a.id+" • <b>Type:</b>"+a.mime+" • <b>Size:</b>"+a.size+" bytes • <b>Created:</b>"+new Date(a.created).toLocaleString();
+  document.getElementById("detailDesc").textContent=a.desc;
+  const prev=document.getElementById("detailPreview");prev.innerHTML="";
+  if(a.mime.startsWith("image/")){const img=new Image();img.src=a.dataUrl;img.className="preview";prev.appendChild(img)}
+  else if(a.mime.startsWith("video/")){const vid=document.createElement("video");vid.src=a.dataUrl;vid.controls=true;vid.className="preview";prev.appendChild(vid)}
+  else if(a.mime.startsWith("audio/")){const aud=document.createElement("audio");aud.src=a.dataUrl;aud.controls=true;prev.appendChild(aud)}
+  document.getElementById("dataUrlBox").value=a.dataUrl;
+  const dl=document.getElementById("downloadBtn");dl.onclick=()=>{const l=document.createElement("a");l.href=a.dataUrl;l.download=a.filename||a.name;l.click()}
+  document.getElementById("deleteBtn").onclick=()=>{if(confirm("Delete this asset?")){delete db[id];saveAll(db);renderList();document.getElementById("assetDetailCard").style.display="none"}}
+}
+document.getElementById("uploadForm").addEventListener("submit",async e=>{
+e.preventDefault();
+const fileInput=document.getElementById("assetFile");if(!fileInput.files.length)return;
+const file=fileInput.files[0];
+const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file)});
+const id=makeId();const db=loadAll();
+db[id]={id,name:document.getElementById("assetName").value,desc:document.getElementById("assetDesc").value,created:Date.now(),filename:file.name,mime:file.type||"application/octet-stream",size:file.size||dataUrl.length,dataUrl};
+saveAll(db);
+document.getElementById("uploadStatus").textContent="Uploaded! ID: "+id;renderList();document.getElementById("uploadForm").reset()});
+document.getElementById("searchInput").addEventListener("input",e=>{renderList(e.target.value)});
+window.addEventListener("hashchange",()=>{const id=location.hash.slice(1);if(id)showAsset(id)});
+renderList();
+const initHash=location.hash.slice(1);if(initHash)showAsset(initHash);
+</script>
+</body>
+</html>
